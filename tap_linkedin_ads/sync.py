@@ -1,4 +1,5 @@
 import singer
+from singer import metadata
 from tap_linkedin_ads.streams import STREAMS, write_bookmark
 from datetime import datetime, timedelta
 
