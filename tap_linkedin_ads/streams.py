@@ -523,9 +523,9 @@ class LinkedInAds:
         for chunk_start, chunk_end in date_chunks:
             LOGGER.info(f'Syncing {parent_id} from {chunk_start} to {chunk_end}')
             
-            # Convert string dates back to datetime for parameter formatting
-            chunk_start_dt = datetime.strptime(chunk_start, "%Y-%m-%dT%H:%M:%SZ")
-            chunk_end_dt = datetime.strptime(chunk_end, "%Y-%m-%dT%H:%M:%SZ")
+            # If chunk_start/chunk_end are already datetime objects, don't parse them
+            chunk_start_dt = chunk_start if isinstance(chunk_start, datetime) else datetime.strptime(chunk_start, "%Y-%m-%dT%H:%M:%SZ")
+            chunk_end_dt = chunk_end if isinstance(chunk_end, datetime) else datetime.strptime(chunk_end, "%Y-%m-%dT%H:%M:%SZ")
             
             # Update parameters for this chunk
             self.params.update({
@@ -562,13 +562,13 @@ class LinkedInAds:
                             records=transformed_data,
                             time_extracted=time_extracted,
                             bookmark_field=bookmark_field,
-                            max_bookmark_value=chunk_end,  # Use chunk end as bookmark
+                            max_bookmark_value=chunk_end_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),  # Convert back to string
                             last_datetime=last_datetime
                         )
                         total_records += record_count
             
             # Update max_bookmark_value to the latest chunk end
-            max_bookmark_value = chunk_end
+            max_bookmark_value = chunk_end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")  # Convert back to string
         
         return total_records, max_bookmark_value
 

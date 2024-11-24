@@ -17,43 +17,33 @@ class TimeGranularity:
 
 def get_date_chunks(start_date, end_date, granularity):
     """Break down a date range into chunks based on the specified granularity."""
-    start = datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%SZ")
-    end = datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%SZ")
+    # Convert to datetime if string
+    start = start_date if isinstance(start_date, datetime) else datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%SZ")
+    end = end_date if isinstance(end_date, datetime) else datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%SZ")
     chunks = []
     
     if granularity == TimeGranularity.WEEKLY:
         current = start
         while current < end:
             chunk_end = min(current + relativedelta(days=7), end)
-            chunks.append((
-                current.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                chunk_end.strftime("%Y-%m-%dT%H:%M:%SZ")
-            ))
+            chunks.append((current, chunk_end))  # Return datetime objects
             current = chunk_end
     elif granularity == TimeGranularity.MONTHLY:
         current = start
         while current < end:
-            # Always go to end of month
             next_month = current + relativedelta(months=1, day=1) - relativedelta(days=1)
             chunk_end = min(next_month, end)
-            chunks.append((
-                current.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                chunk_end.strftime("%Y-%m-%dT%H:%M:%SZ")
-            ))
-            current = chunk_end + relativedelta(days=1)  # Start of next month
+            chunks.append((current, chunk_end))  # Return datetime objects
+            current = chunk_end + relativedelta(days=1)
     elif granularity == TimeGranularity.YEARLY:
         current = start
         while current < end:
-            # Always go to end of year
             next_year = current + relativedelta(years=1, month=1, day=1) - relativedelta(days=1)
             chunk_end = min(next_year, end)
-            chunks.append((
-                current.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                chunk_end.strftime("%Y-%m-%dT%H:%M:%SZ")
-            ))
-            current = chunk_end + relativedelta(days=1)  # Start of next year
+            chunks.append((current, chunk_end))  # Return datetime objects
+            current = chunk_end + relativedelta(days=1)
     else:  # ALL
-        chunks = [(start_date, end_date)]
+        chunks = [(start, end)]  # Return datetime objects
     
     return chunks
 
