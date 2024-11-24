@@ -572,28 +572,25 @@ class LinkedInAds:
             if parent_id:
                 static_params[f'{self.parent}[0]'] = f'urn:li:sponsored{self.parent.title()[:-1]}:{parent_id}'
 
-            # Make API calls for each field chunk
-            responses = []
+            # Make one API call per field chunk
+            all_records = []
             for chunk in chunks:
                 params = {
                     **static_params,
-                    'fields': ','.join(chunk),
+                    'fields': ','.join(chunk) if isinstance(chunk, list) else chunk,
                     'start': 0
                 }
                 query_string = '&'.join(['%s=%s' % (key, value) for (key, value) in params.items()])
                 
-                for page in sync_analytics_endpoint(client, self.tap_stream_id, self.path, query_string):
-                    if page.get(self.data_key):
-                        responses.append(page.get(self.data_key))
+                # Make single API call for this chunk
+                response = next(sync_analytics_endpoint(client, self.tap_stream_id, self.path, query_string), None)
+                if response and response.get(self.data_key):
+                    all_records.extend(response.get(self.data_key))
 
-            # Process responses
-            if responses:
-                pivot = static_params["pivot"] if "pivot" in static_params else None
-                raw_records = merge_responses(pivot, responses)
-                time_extracted = utils.now()
-
+            # Process all records for this time chunk
+            if all_records:
                 transformed_data = transform_json(
-                    {self.data_key: list(raw_records.values())},
+                    {self.data_key: all_records},
                     self.tap_stream_id
                 )[self.data_key]
 
@@ -601,7 +598,7 @@ class LinkedInAds:
                     _, record_count = self.process_records(
                         catalog=catalog,
                         records=transformed_data,
-                        time_extracted=time_extracted,
+                        time_extracted=utils.now(),
                         bookmark_field=bookmark_field,
                         max_bookmark_value=chunk_end_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
                         last_datetime=last_datetime,
