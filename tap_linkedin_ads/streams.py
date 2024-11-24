@@ -546,9 +546,10 @@ class LinkedInAds:
             if parent_id:
                 self.params[f'{self.parent}[0]'] = f'urn:li:sponsored{self.parent.title()[:-1]}:{parent_id}'
             
-            # Call sync_endpoint without params argument
+            # Call sync_endpoint with all required arguments including catalog
             records = self.sync_endpoint(
                 client=client,
+                catalog=catalog,  # Added missing catalog parameter
                 state={},
                 page_size=10000,
                 start_date=chunk_start,
