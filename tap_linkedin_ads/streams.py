@@ -546,11 +546,22 @@ class LinkedInAds:
             if parent_id:
                 params[f'{self.parent}[0]'] = f'urn:li:sponsored{self.parent.title()[:-1]}:{parent_id}'
             
-            # Use sync_endpoint instead of get_analytics_records
-            records = self.sync_endpoint(client, params)
-            total_records += len(records)
+            # Call sync_endpoint with all required arguments
+            records = self.sync_endpoint(
+                client=client,
+                state={},  # Add proper state handling if needed
+                page_size=10000,
+                start_date=chunk_start,
+                end_date=chunk_end,
+                time_granularity=time_granularity,
+                selected_streams=catalog,
+                date_window_size=date_window_size,
+                params=params
+            )
             
-            # Update bookmark value
+            total_records += len(records) if records else 0
+            
+            # Update bookmark value if records exist
             if records:
                 max_bookmark_value = records[-1].get(bookmark_field)
         
