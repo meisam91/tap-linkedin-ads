@@ -40,15 +40,6 @@ def get_date_chunks(start_date, end_date, granularity):
     start = datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%SZ")
     end = datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%SZ")
     
-    # For small date ranges (less than the granularity period),
-    # return a single chunk
-    if granularity == TimeGranularity.YEARLY and (end - start).days <= 365:
-        return [(start, end)]
-    elif granularity == TimeGranularity.MONTHLY and (end - start).days <= 31:
-        return [(start, end)]
-    elif granularity == TimeGranularity.WEEKLY and (end - start).days <= 7:
-        return [(start, end)]
-    
     chunks = []
     current = start
     
@@ -536,7 +527,7 @@ class LinkedInAds:
                 'dateRange.end.month': chunk_end.month,
                 'dateRange.end.year': chunk_end.year,
                 'fields': ','.join(all_fields),
-                'timeGranularity': time_granularity
+                'timeGranularity': 'ALL'  # Always set to ALL
             })
             
             if parent_id:
@@ -547,16 +538,14 @@ class LinkedInAds:
                 catalog=catalog,
                 state={},
                 page_size=10000,
-                start_date=chunk_start.strftime("%Y-%m-%dT%H:%M:%SZ"),  # Convert to string
-                end_date=chunk_end.strftime("%Y-%m-%dT%H:%M:%SZ"),      # Convert to string
-                time_granularity=time_granularity,
+                start_date=chunk_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                end_date=chunk_end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                time_granularity='ALL',  # Always set to ALL
                 selected_streams=catalog,
                 date_window_size=date_window_size
             )
             
             total_records += len(records) if records else 0
-            
-            # Convert to string format before returning
             max_bookmark_value = chunk_end.strftime("%Y-%m-%dT%H:%M:%SZ")
         
         return total_records, max_bookmark_value
