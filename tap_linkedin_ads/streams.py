@@ -538,7 +538,7 @@ class LinkedInAds:
                 'dateRange.start.year': chunk_start.year,
                 'dateRange.end.day': chunk_end.day,
                 'dateRange.end.month': chunk_end.month,
-                'dateRange.end.year': chunk_end.end_year,
+                'dateRange.end.year': chunk_end.year,
                 'fields': ','.join(all_fields),
                 'timeGranularity': time_granularity
             })
@@ -546,7 +546,7 @@ class LinkedInAds:
             if parent_id:
                 self.params[f'{self.parent}[0]'] = f'urn:li:sponsored{self.parent.title()[:-1]}:{parent_id}'
             
-            # Call sync_endpoint
+            # Call sync_endpoint without params argument
             records = self.sync_endpoint(
                 client=client,
                 state={},
