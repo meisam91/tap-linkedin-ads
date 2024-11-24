@@ -563,20 +563,25 @@ class LinkedInAds:
 
         total_records = 0
         for chunk_start, chunk_end in date_chunks:
-            # Set up parameters for this chunk
-            static_params = {**self.params,
-                            'dateRange.start.day': chunk_start.day,
-                            'dateRange.start.month': chunk_start.month,
-                            'dateRange.start.year': chunk_start.year,
-                            'dateRange.end.day': chunk_end.day,
-                            'dateRange.end.month': chunk_end.month,
-                            'dateRange.end.year': chunk_end.year}
+            LOGGER.info(f'Syncing {parent_id} from {chunk_start} to {chunk_end}')
+            
+            # Make a single API call for the entire chunk period
+            params = {
+                **self.params,
+                'dateRange.start.day': chunk_start.day,
+                'dateRange.start.month': chunk_start.month,
+                'dateRange.start.year': chunk_start.year,
+                'dateRange.end.day': chunk_end.day,
+                'dateRange.end.month': chunk_end.month,
+                'dateRange.end.year': chunk_end.year,
+            }
+            
+            if parent_id:
+                params[f'{self.parent}[0]'] = f'urn:li:sponsored{self.parent.title()[:-1]}:{parent_id}'
 
             responses = []
             for chunk in chunks:
-                static_params['fields'] = ','.join(chunk)
-                params = {"start": 0,
-                          **static_params}
+                params['fields'] = ','.join(chunk)
                 query_string = '&'.join(['%s=%s' % (key, value) for (key, value) in params.items()])
                 LOGGER.info('Syncing %s from %s to %s', parent_id, chunk_start, chunk_end)
                 for page in sync_analytics_endpoint(client, self.tap_stream_id, self.path, query_string):
