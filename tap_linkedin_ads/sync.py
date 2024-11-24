@@ -1,7 +1,6 @@
 import singer
 from tap_linkedin_ads.streams import STREAMS, write_bookmark
 from datetime import datetime, timedelta
-from tap_linkedin_ads import VALID_TIME_GRANULARITIES
 
 LOGGER = singer.get_logger()
 
@@ -168,7 +167,7 @@ def sync(client, config, catalog, state):
 
         # Get time granularity from config
         time_granularity = config.get('time_granularity', 'MONTHLY').upper()
-        if time_granularity not in VALID_TIME_GRANULARITIES:
+        if time_granularity not in ['ALL', 'DAILY', 'MONTHLY', 'YEARLY']:
             raise Exception(f"Invalid time_granularity: {time_granularity}. Must be one of {VALID_TIME_GRANULARITIES}")
 
         # Generate date windows based on granularity
