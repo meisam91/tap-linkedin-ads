@@ -26,24 +26,26 @@ def get_date_chunks(start_date, end_date, granularity):
         current = start
         while current < end:
             chunk_end = min(current + relativedelta(days=7), end)
-            chunks.append((current, chunk_end))  # Return datetime objects
+            chunks.append((current, chunk_end))
             current = chunk_end
     elif granularity == TimeGranularity.MONTHLY:
         current = start
         while current < end:
-            next_month = current + relativedelta(months=1, day=1) - relativedelta(days=1)
-            chunk_end = min(next_month, end)
-            chunks.append((current, chunk_end))  # Return datetime objects
-            current = chunk_end + relativedelta(days=1)
+            # Calculate next month end, but don't exceed end date
+            next_month = min(
+                current + relativedelta(months=1, day=1) - relativedelta(days=1),
+                end
+            )
+            chunks.append((current, next_month))
+            current = next_month + relativedelta(days=1)
+            if current > end:
+                break
     elif granularity == TimeGranularity.YEARLY:
-        current = start
-        while current < end:
-            next_year = current + relativedelta(years=1, month=1, day=1) - relativedelta(days=1)
-            chunk_end = min(next_year, end)
-            chunks.append((current, chunk_end))  # Return datetime objects
-            current = chunk_end + relativedelta(days=1)
+        # For yearly, just use the exact date range provided
+        # Don't try to extend to full year if range is smaller
+        chunks = [(start, end)]
     else:  # ALL
-        chunks = [(start, end)]  # Return datetime objects
+        chunks = [(start, end)]
     
     return chunks
 

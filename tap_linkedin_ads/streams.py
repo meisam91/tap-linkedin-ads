@@ -37,24 +37,35 @@ class TimeGranularity:
 
 def get_date_chunks(start_date, end_date, granularity):
     """Break down a date range into chunks based on the specified granularity."""
-    start = datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%SZ")
-    end = datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%SZ")
-    
+    # Convert to datetime if string
+    start = start_date if isinstance(start_date, datetime) else datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%SZ")
+    end = end_date if isinstance(end_date, datetime) else datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%SZ")
     chunks = []
-    current = start
     
-    while current < end:
-        if granularity == TimeGranularity.YEARLY:
-            next_point = min(current + relativedelta(years=1), end)
-        elif granularity == TimeGranularity.MONTHLY:
-            next_point = min(current + relativedelta(months=1), end)
-        elif granularity == TimeGranularity.WEEKLY:
-            next_point = min(current + timedelta(days=7), end)
-        else:  # ALL
-            next_point = end
-            
-        chunks.append((current, next_point))
-        current = next_point
+    if granularity == TimeGranularity.WEEKLY:
+        current = start
+        while current < end:
+            chunk_end = min(current + relativedelta(days=7), end)
+            chunks.append((current, chunk_end))
+            current = chunk_end
+    elif granularity == TimeGranularity.MONTHLY:
+        current = start
+        while current < end:
+            # Calculate next month end, but don't exceed end date
+            next_month = min(
+                current + relativedelta(months=1, day=1) - relativedelta(days=1),
+                end
+            )
+            chunks.append((current, next_month))
+            current = next_month + relativedelta(days=1)
+            if current > end:
+                break
+    elif granularity == TimeGranularity.YEARLY:
+        # For yearly, just use the exact date range provided
+        # Don't try to extend to full year if range is smaller
+        chunks = [(start, end)]
+    else:  # ALL
+        chunks = [(start, end)]
     
     return chunks
 
@@ -509,11 +520,17 @@ class LinkedInAds:
     # pylint: disable=too-many-branches,too-many-statements,unused-argument
     def sync_ad_analytics(self, client, catalog, last_datetime, date_window_size, end_date, time_granularity, parent_id=None):
         """Sync analytics data with proper granularity handling."""
-        MAX_CHUNK_LENGTH = 18  # LinkedIn max 20 fields, reserve 2 for dateRange and pivotValues
+        MAX_CHUNK_LENGTH = 18
         bookmark_field = next(iter(self.replication_keys))
         max_bookmark_value = last_datetime
         total_records = 0
 
+        LOGGER.info(f"Starting sync with date range: {last_datetime} to {end_date}, granularity: {time_granularity}")
+        
+        # Get date chunks based on granularity
+        date_chunks = get_date_chunks(last_datetime, end_date, time_granularity)
+        LOGGER.info(f"Created {len(date_chunks)} date chunks")
+        
         # Get valid fields that can be requested from API
         valid_selected_fields = [
             snake_case_to_camel_case(field)
@@ -530,13 +547,10 @@ class LinkedInAds:
             for field in ['dateRange', 'pivotValues']:
                 if field not in chunk:
                     chunk.append(field)
-
-        # Get date chunks based on granularity
-        date_chunks = get_date_chunks(last_datetime, end_date, time_granularity)
         
         # For each time chunk, make API calls
         for chunk_start, chunk_end in date_chunks:
-            LOGGER.info(f'Syncing {parent_id} from {chunk_start} to {chunk_end}')
+            LOGGER.info(f'Processing chunk: {chunk_start} to {chunk_end}')
             
             # Convert to datetime if string
             chunk_start_dt = chunk_start if isinstance(chunk_start, datetime) else datetime.strptime(chunk_start, "%Y-%m-%dT%H:%M:%SZ")
@@ -546,7 +560,7 @@ class LinkedInAds:
             static_params = {
                 'q': 'analytics',
                 'pivot': self.params['pivot'],
-                'timeGranularity': 'ALL',  # Always ALL for API calls
+                'timeGranularity': 'ALL',
                 'dateRange.start.day': chunk_start_dt.day,
                 'dateRange.start.month': chunk_start_dt.month,
                 'dateRange.start.year': chunk_start_dt.year,
@@ -555,7 +569,6 @@ class LinkedInAds:
                 'dateRange.end.year': chunk_end_dt.year,
             }
 
-            # Add campaign parameter if parent_id exists
             if parent_id:
                 static_params[f'{self.parent}[0]'] = f'urn:li:sponsored{self.parent.title()[:-1]}:{parent_id}'
 
@@ -573,7 +586,7 @@ class LinkedInAds:
                     if page.get(self.data_key):
                         responses.append(page.get(self.data_key))
 
-            # Merge responses and process records
+            # Process responses
             if responses:
                 pivot = static_params["pivot"] if "pivot" in static_params else None
                 raw_records = merge_responses(pivot, responses)
@@ -597,9 +610,9 @@ class LinkedInAds:
                     LOGGER.info('%s, records processed: %s', self.tap_stream_id, record_count)
                     total_records += record_count
 
-            # Update max_bookmark_value to the latest chunk end
             max_bookmark_value = chunk_end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
+        LOGGER.info(f"Completed sync with {total_records} total records processed")
         return total_records, max_bookmark_value
 
 class Accounts(LinkedInAds):
