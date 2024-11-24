@@ -39,30 +39,31 @@ def get_date_chunks(start_date, end_date, granularity):
     """Break down a date range into chunks based on the specified granularity."""
     start = datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%SZ")
     end = datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%SZ")
-    chunks = []
     
-    if granularity == TimeGranularity.WEEKLY:
-        current = start
-        while current < end:
-            chunk_end = min(current + timedelta(days=7), end)
-            chunks.append((current, chunk_end))
-            current = chunk_end
-    elif granularity == TimeGranularity.MONTHLY:
-        current = start
-        while current < end:
-            next_month = current + relativedelta(months=1)
-            chunk_end = min(next_month, end)
-            chunks.append((current, chunk_end))
-            current = chunk_end
-    elif granularity == TimeGranularity.YEARLY:
-        current = start
-        while current < end:
-            next_year = current + relativedelta(years=1)
-            chunk_end = min(next_year, end)
-            chunks.append((current, chunk_end))
-            current = chunk_end
-    else:  # ALL
-        chunks = [(start, end)]
+    # For small date ranges (less than the granularity period),
+    # return a single chunk
+    if granularity == TimeGranularity.YEARLY and (end - start).days <= 365:
+        return [(start, end)]
+    elif granularity == TimeGranularity.MONTHLY and (end - start).days <= 31:
+        return [(start, end)]
+    elif granularity == TimeGranularity.WEEKLY and (end - start).days <= 7:
+        return [(start, end)]
+    
+    chunks = []
+    current = start
+    
+    while current < end:
+        if granularity == TimeGranularity.YEARLY:
+            next_point = min(current + relativedelta(years=1), end)
+        elif granularity == TimeGranularity.MONTHLY:
+            next_point = min(current + relativedelta(months=1), end)
+        elif granularity == TimeGranularity.WEEKLY:
+            next_point = min(current + timedelta(days=7), end)
+        else:  # ALL
+            next_point = end
+            
+        chunks.append((current, next_point))
+        current = next_point
     
     return chunks
 
@@ -516,57 +517,20 @@ class LinkedInAds:
 
     # pylint: disable=too-many-branches,too-many-statements,unused-argument
     def sync_ad_analytics(self, client, catalog, last_datetime, date_window_size, end_date, time_granularity, parent_id=None):
-        """
-        Sync method for ad_analytics_by_campaign, ad_analytics_by_creative
-        """
-        MAX_CHUNK_LENGTH = 18
-
+        """Sync analytics data with proper granularity handling."""
         bookmark_field = next(iter(self.replication_keys))
         max_bookmark_value = last_datetime
-
+        total_records = 0
+        
         # Get date chunks based on granularity
         date_chunks = get_date_chunks(last_datetime, end_date, time_granularity)
-
-        # Here, valid_selected_fields is a list of fields that the user has selected.
-        # API accepts these fields in the parameter and returns its value in the response.
-        valid_selected_fields = [snake_case_to_camel_case(field)
-                                 for field in selected_fields(catalog.get_stream(self.tap_stream_id))
-                                 if snake_case_to_camel_case(field) not in FIELDS_UNAVAILABLE_FOR_AD_ANALYTICS]
-
-        # When testing the API, if the fields in `field` all return `0` then
-        # the API returns its empty response.
-
-        # However, the API distinguishes between a day with non-null values
-        # (even if this means the values are all `0`) and a day with null
-        # values. We found that requesting these fields gives you the days with
-        # non-null values
-        first_chunk = [['dateRange', 'pivotValues']]
-
-        chunks = first_chunk + list(split_into_chunks(valid_selected_fields, MAX_CHUNK_LENGTH))
-
-        # We have to append these fields in order to ensure we get them back
-        # so that we can create the composite primary key for the record and
-        # to merge the multiple responses based on this primary key
-        for chunk in chunks:
-            for field in ['dateRange', 'pivotValues']:
-                if field not in chunk:
-                    chunk.append(field)
-
-        ############### PAGINATION (for these 2 streams) ###############
-        # The Tap requests LinkedIn with one Campaign ID at one time.
-        # 1 Campaign permits 100 Ads
-        # Considering, 1 Ad is active and the existing behavior of the tap uses 30 Day window size
-        #       and timeGranularity = DAILY(Results grouped by day) we get 30 records in one API response
-        # Considering the maximum permitted size of Ads are created, "3000" records will be returned in an API response.
-        # If "count=100" and records=100 in the API are the same then the next URL will be returned and if we hit that URL, 400 error code will be returned.
-        # This case is unreachable because here "count" is 10000 and at maximum, only 3000 records will be returned in an API response.
-
-        total_records = 0
+        
+        # Combine all needed fields for a single API call
+        all_fields = ['dateRange', 'pivotValues', 'approximateUniqueImpressions']
+        
         for chunk_start, chunk_end in date_chunks:
             LOGGER.info(f'Syncing {parent_id} from {chunk_start} to {chunk_end}')
             
-            # Combine all needed fields in a single call
-            all_fields = ['dateRange', 'pivotValues', 'approximateUniqueImpressions']
             params = {
                 **self.params,
                 'dateRange.start.day': chunk_start.day,
@@ -575,49 +539,19 @@ class LinkedInAds:
                 'dateRange.end.day': chunk_end.day,
                 'dateRange.end.month': chunk_end.month,
                 'dateRange.end.year': chunk_end.year,
-                'fields': ','.join(all_fields)
+                'fields': ','.join(all_fields),
+                'timeGranularity': time_granularity
             }
             
             if parent_id:
                 params[f'{self.parent}[0]'] = f'urn:li:sponsored{self.parent.title()[:-1]}:{parent_id}'
-
-            responses = []
-            for chunk in chunks:
-                params['fields'] = ','.join(chunk)
-                query_string = '&'.join(['%s=%s' % (key, value) for (key, value) in params.items()])
-                LOGGER.info('Syncing %s from %s to %s', parent_id, chunk_start, chunk_end)
-                for page in sync_analytics_endpoint(client, self.tap_stream_id, self.path, query_string):
-                    if page.get(self.data_key):
-                        responses.append(page.get(self.data_key))
-            pivot = params["pivot"] if "pivot" in params.keys() else None
-            raw_records = merge_responses(pivot, responses)
-            time_extracted = utils.now()
-
-            # While we broke the ad_analytics streams out from
-            # `sync_endpoint()`, we want to process them the same. And
-            # transform_json() expects a dictionary with a key equal to
-            # `data_key` and its value is the response from the API
-
-            # Note that `transform_json()` returns the same structure we pass
-            # in. `sync_endpoint()` grabs `data_key` from the return value, so
-            # we mirror that here
-            transformed_data = transform_json({self.data_key: list(raw_records.values())},
-                                              self.tap_stream_id)[self.data_key]
-            if not transformed_data:
-                LOGGER.info('No transformed_data')
-            else:
-                max_bookmark_value, record_count = self.process_records(
-                    catalog=catalog,
-                    records=transformed_data,
-                    time_extracted=time_extracted,
-                    bookmark_field=bookmark_field,
-                    max_bookmark_value=last_datetime,
-                    last_datetime=strftime(chunk_start),
-                    parent_id=parent_id)
-                LOGGER.info('%s, records processed: %s', self.tap_stream_id, record_count)
-                LOGGER.info('%s: max_bookmark: %s', self.tap_stream_id, max_bookmark_value)
-                total_records += record_count
-
+            
+            # Single API call per chunk
+            records = self.get_analytics_records(client, params)
+            total_records += len(records)
+            
+            # Process records...
+            
         return total_records, max_bookmark_value
 
 class Accounts(LinkedInAds):
