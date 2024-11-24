@@ -1,7 +1,5 @@
 import singer
-from singer import metadata
 from tap_linkedin_ads.streams import STREAMS, write_bookmark
-from datetime import datetime, timedelta
 
 LOGGER = singer.get_logger()
 
@@ -68,47 +66,6 @@ def get_page_size(config):
     except Exception:
         raise Exception("The entered page size ({}) is invalid".format(page_size))
 
-def get_date_windows(start_date, end_date, granularity):
-    """
-    Generate date windows based on granularity
-    """
-    # Remove any time component from the date string
-    start_date = start_date.split('T')[0]
-    end_date = end_date.split('T')[0]
-    
-    start = datetime.strptime(start_date, '%Y-%m-%d')
-    end = datetime.strptime(end_date, '%Y-%m-%d')
-    windows = []
-    
-    if granularity == 'DAILY':
-        current = start
-        while current <= end:
-            windows.append({
-                'start': current.strftime('%Y-%m-%d'),
-                'end': current.strftime('%Y-%m-%d')
-            })
-            current += timedelta(days=1)
-    elif granularity == 'MONTHLY':
-        current = start.replace(day=1)
-        while current <= end:
-            month_end = (current.replace(day=1) + timedelta(days=32)).replace(day=1) - timedelta(days=1)
-            windows.append({
-                'start': current.strftime('%Y-%m-%d'),
-                'end': min(month_end, end).strftime('%Y-%m-%d')
-            })
-            current = (current.replace(day=1) + timedelta(days=32)).replace(day=1)
-    elif granularity == 'YEARLY':
-        current = start.replace(month=1, day=1)
-        while current <= end:
-            year_end = current.replace(month=12, day=31)
-            windows.append({
-                'start': current.strftime('%Y-%m-%d'),
-                'end': min(year_end, end).strftime('%Y-%m-%d')
-            })
-            current = current.replace(year=current.year + 1)
-            
-    return windows
-
 def sync(client, config, catalog, state):
     """
     sync selected streams.
@@ -123,16 +80,11 @@ def sync(client, config, catalog, state):
         date_window_size = DATE_WINDOW_SIZE
         LOGGER.info('Using standard date window size of %s', DATE_WINDOW_SIZE)
 
-    # Initialize account_list at the start
-    account_list = []
-    
-    # Get selected streams
+    # Get ALL selected streams from catalog
     selected_streams = []
-    for stream in catalog.streams:
-        stream_metadata = metadata.to_map(stream.metadata)
-        # Verify stream selection
-        if stream_metadata.get((), {}).get('selected', False):
-            selected_streams.append(stream.tap_stream_id)
+    for stream in catalog.get_selected_streams(state):
+        selected_streams.append(stream.stream)
+    LOGGER.info('selected_streams: %s', selected_streams)
 
     if not selected_streams:
         return
@@ -174,15 +126,6 @@ def sync(client, config, catalog, state):
         # Write schema for parent streams
         if stream_name in selected_streams:
             stream_obj.write_schema(catalog)
-
-        # Get time granularity from config
-        time_granularity = config.get('time_granularity', 'MONTHLY').upper()
-        if time_granularity not in ['ALL', 'DAILY', 'MONTHLY', 'YEARLY']:
-            raise Exception(f"Invalid time_granularity: {time_granularity}. Must be one of {VALID_TIME_GRANULARITIES}")
-
-        # Generate date windows based on granularity
-        date_windows = get_date_windows(start_date, datetime.now().strftime('%Y-%m-%d'), time_granularity)
-        LOGGER.info('Generated %s date windows for granularity %s', len(date_windows), time_granularity)
 
         total_records, max_bookmark_value = stream_obj.sync_endpoint(
             client=client, catalog=catalog,

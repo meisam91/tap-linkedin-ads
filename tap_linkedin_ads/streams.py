@@ -716,16 +716,12 @@ class AdAnalyticsByCampaign(LinkedInAds):
     foreign_key = "id"
     data_key = "elements"
     parent = "campaigns"
-    supports_time_granularity = True
-    
-    def get_params(self, config=None):
-        params = {
-            "q": "analytics",
-            "pivot": "CAMPAIGN",
-            "timeGranularity": config.get('time_granularity', 'MONTHLY').upper(),
-            "count": 10000
-        }
-        return params
+    params = {
+        "q": "analytics",
+        "pivot": "CAMPAIGN",
+        "timeGranularity": "DAILY",
+        "count": 10000
+    }
 
 class AdAnalyticsByCreative(LinkedInAds):
     """
@@ -740,16 +736,12 @@ class AdAnalyticsByCreative(LinkedInAds):
     foreign_key = "id"
     data_key = "elements"
     parent = "campaigns"
-    supports_time_granularity = True
-    
-    def get_params(self, config=None):
-        params = {
-            "q": "analytics",
-            "pivot": "CREATIVE",
-            "timeGranularity": config.get('time_granularity', 'MONTHLY').upper(),
-            "count": 10000
-        }
-        return params
+    params = {
+        "q": "analytics",
+        "pivot": "CREATIVE",
+        "timeGranularity": "DAILY",
+        "count": 10000
+    }
 
 # Dictionary of the stream classes
 STREAMS = {

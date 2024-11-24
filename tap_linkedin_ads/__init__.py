@@ -18,6 +18,7 @@ REQUIRED_CONFIG_KEYS = [
     'user_agent'
 ]
 
+
 def do_discover(client, config):
     LOGGER.info('Starting discover')
     client.check_accounts(config)
