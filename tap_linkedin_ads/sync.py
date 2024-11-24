@@ -25,24 +25,35 @@ def get_date_chunks(start_date, end_date, granularity):
         current = start
         while current < end:
             chunk_end = min(current + relativedelta(days=7), end)
-            chunks.append((current, chunk_end))
+            chunks.append((
+                current.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                chunk_end.strftime("%Y-%m-%dT%H:%M:%SZ")
+            ))
             current = chunk_end
     elif granularity == TimeGranularity.MONTHLY:
         current = start
         while current < end:
-            next_month = current + relativedelta(months=1)
+            # Always go to end of month
+            next_month = current + relativedelta(months=1, day=1) - relativedelta(days=1)
             chunk_end = min(next_month, end)
-            chunks.append((current, chunk_end))
-            current = chunk_end
+            chunks.append((
+                current.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                chunk_end.strftime("%Y-%m-%dT%H:%M:%SZ")
+            ))
+            current = chunk_end + relativedelta(days=1)  # Start of next month
     elif granularity == TimeGranularity.YEARLY:
         current = start
         while current < end:
-            next_year = current + relativedelta(years=1)
+            # Always go to end of year
+            next_year = current + relativedelta(years=1, month=1, day=1) - relativedelta(days=1)
             chunk_end = min(next_year, end)
-            chunks.append((current, chunk_end))
-            current = chunk_end
+            chunks.append((
+                current.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                chunk_end.strftime("%Y-%m-%dT%H:%M:%SZ")
+            ))
+            current = chunk_end + relativedelta(days=1)  # Start of next year
     else:  # ALL
-        chunks = [(start, end)]
+        chunks = [(start_date, end_date)]
     
     return chunks
 

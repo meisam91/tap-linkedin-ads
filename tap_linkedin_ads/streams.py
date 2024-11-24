@@ -513,40 +513,62 @@ class LinkedInAds:
         max_bookmark_value = last_datetime
         total_records = 0
         
+        # Get date chunks based on granularity
         date_chunks = get_date_chunks(last_datetime, end_date, time_granularity)
+        
+        # Fields to retrieve from API
         all_fields = ['dateRange', 'pivotValues', 'approximateUniqueImpressions']
         
+        # For each time chunk, make an API call
         for chunk_start, chunk_end in date_chunks:
             LOGGER.info(f'Syncing {parent_id} from {chunk_start} to {chunk_end}')
             
+            # Convert string dates back to datetime for parameter formatting
+            chunk_start_dt = datetime.strptime(chunk_start, "%Y-%m-%dT%H:%M:%SZ")
+            chunk_end_dt = datetime.strptime(chunk_end, "%Y-%m-%dT%H:%M:%SZ")
+            
+            # Update parameters for this chunk
             self.params.update({
-                'dateRange.start.day': chunk_start.day,
-                'dateRange.start.month': chunk_start.month,
-                'dateRange.start.year': chunk_start.year,
-                'dateRange.end.day': chunk_end.day,
-                'dateRange.end.month': chunk_end.month,
-                'dateRange.end.year': chunk_end.year,
+                'dateRange.start.day': chunk_start_dt.day,
+                'dateRange.start.month': chunk_start_dt.month,
+                'dateRange.start.year': chunk_start_dt.year,
+                'dateRange.end.day': chunk_end_dt.day,
+                'dateRange.end.month': chunk_end_dt.month,
+                'dateRange.end.year': chunk_end_dt.year,
                 'fields': ','.join(all_fields),
-                'timeGranularity': 'ALL'  # Always set to ALL
+                'timeGranularity': 'ALL'  # Always set to ALL for API calls
             })
             
+            # Add parent ID if provided
             if parent_id:
                 self.params[f'{self.parent}[0]'] = f'urn:li:sponsored{self.parent.title()[:-1]}:{parent_id}'
             
-            records = self.sync_endpoint(
+            # Make API call for this chunk
+            chunk_records = sync_analytics_endpoint(
                 client=client,
-                catalog=catalog,
-                state={},
-                page_size=10000,
-                start_date=chunk_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                end_date=chunk_end.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                time_granularity='ALL',  # Always set to ALL
-                selected_streams=catalog,
-                date_window_size=date_window_size
+                stream_name=self.tap_stream_id,
+                path=self.path,
+                query_string='&'.join(['%s=%s' % (key, value) for (key, value) in self.params.items()])
             )
             
-            total_records += len(records) if records else 0
-            max_bookmark_value = chunk_end.strftime("%Y-%m-%dT%H:%M:%SZ")
+            # Process records for this chunk
+            for page in chunk_records:
+                if self.data_key in page:
+                    transformed_data = transform_json(page, self.tap_stream_id)[self.data_key]
+                    if transformed_data:
+                        time_extracted = utils.now()
+                        _, record_count = self.process_records(
+                            catalog=catalog,
+                            records=transformed_data,
+                            time_extracted=time_extracted,
+                            bookmark_field=bookmark_field,
+                            max_bookmark_value=chunk_end,  # Use chunk end as bookmark
+                            last_datetime=last_datetime
+                        )
+                        total_records += record_count
+            
+            # Update max_bookmark_value to the latest chunk end
+            max_bookmark_value = chunk_end
         
         return total_records, max_bookmark_value
 
