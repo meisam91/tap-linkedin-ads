@@ -122,11 +122,16 @@ def sync(client, config, catalog, state):
         date_window_size = DATE_WINDOW_SIZE
         LOGGER.info('Using standard date window size of %s', DATE_WINDOW_SIZE)
 
-    # Get ALL selected streams from catalog
+    # Initialize account_list at the start
+    account_list = []
+    
+    # Get selected streams
     selected_streams = []
-    for stream in catalog.get_selected_streams(state):
-        selected_streams.append(stream.stream)
-    LOGGER.info('selected_streams: %s', selected_streams)
+    for stream in catalog.streams:
+        stream_metadata = metadata.to_map(stream.metadata)
+        # Verify stream selection
+        if stream_metadata.get((), {}).get('selected', False):
+            selected_streams.append(stream.tap_stream_id)
 
     if not selected_streams:
         return
