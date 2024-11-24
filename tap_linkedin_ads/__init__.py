@@ -18,6 +18,13 @@ REQUIRED_CONFIG_KEYS = [
     'user_agent'
 ]
 
+VALID_TIME_GRANULARITIES = [
+    'ALL',
+    'DAILY',
+    'MONTHLY',
+    'YEARLY'
+]
+
 
 def do_discover(client, config):
     LOGGER.info('Starting discover')
