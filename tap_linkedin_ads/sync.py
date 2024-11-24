@@ -71,6 +71,10 @@ def get_date_windows(start_date, end_date, granularity):
     """
     Generate date windows based on granularity
     """
+    # Remove any time component from the date string
+    start_date = start_date.split('T')[0]
+    end_date = end_date.split('T')[0]
+    
     start = datetime.strptime(start_date, '%Y-%m-%d')
     end = datetime.strptime(end_date, '%Y-%m-%d')
     windows = []
