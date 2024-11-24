@@ -546,12 +546,14 @@ class LinkedInAds:
             if parent_id:
                 params[f'{self.parent}[0]'] = f'urn:li:sponsored{self.parent.title()[:-1]}:{parent_id}'
             
-            # Single API call per chunk
-            records = self.get_analytics_records(client, params)
+            # Use sync_endpoint instead of get_analytics_records
+            records = self.sync_endpoint(client, params)
             total_records += len(records)
             
-            # Process records...
-            
+            # Update bookmark value
+            if records:
+                max_bookmark_value = records[-1].get(bookmark_field)
+        
         return total_records, max_bookmark_value
 
 class Accounts(LinkedInAds):
