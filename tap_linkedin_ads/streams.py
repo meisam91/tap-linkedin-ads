@@ -8,6 +8,7 @@ from singer import metrics, metadata, utils
 from singer import Transformer, should_sync_field, UNIX_MILLISECONDS_INTEGER_DATETIME_PARSING
 from singer.utils import strptime_to_utc, strftime
 from tap_linkedin_ads.transform import transform_json, snake_case_to_camel_case
+from dateutil.relativedelta import relativedelta
 
 LOGGER = singer.get_logger()
 
@@ -483,26 +484,16 @@ class LinkedInAds:
         MAX_CHUNK_LENGTH = 18
 
         bookmark_field = next(iter(self.replication_keys))
-
         max_bookmark_value = last_datetime
-        last_datetime_dt = strptime_to_utc(last_datetime) - timedelta(days=7)
 
-        # Prepare date window for API call
-        window_start_date = last_datetime_dt.date()
-        window_end_date = window_start_date + timedelta(days=date_window_size)
-        today = datetime.date.today()
+        # Get date range from config
+        config = client.config
+        start_date = config['start_date']
+        end_date = config.get('end_date', datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"))
+        time_granularity = config.get('time_granularity', 'DAILY')
 
-        # Reset end_date of date window if it is greater than today
-        window_end_date = min(window_end_date, today)
-
-        # Override the default start and end dates
-        static_params = {**self.params,
-                         'dateRange.start.day': window_start_date.day,
-                         'dateRange.start.month': window_start_date.month,
-                         'dateRange.start.year': window_start_date.year,
-                         'dateRange.end.day': window_end_date.day,
-                         'dateRange.end.month': window_end_date.month,
-                         'dateRange.end.year': window_end_date.year,}
+        # Get date chunks based on granularity
+        date_chunks = get_date_chunks(start_date, end_date, time_granularity)
 
         # Here, valid_selected_fields is a list of fields that the user has selected.
         # API accepts these fields in the parameter and returns its value in the response.
@@ -535,18 +526,27 @@ class LinkedInAds:
         # Considering, 1 Ad is active and the existing behavior of the tap uses 30 Day window size
         #       and timeGranularity = DAILY(Results grouped by day) we get 30 records in one API response
         # Considering the maximum permitted size of Ads are created, "3000" records will be returned in an API response.
-        # If “count=100” and records=100 in the API are the same then the next URL will be returned and if we hit that URL, 400 error code will be returned.
-        # This case is unreachable because here “count” is 10000 and at maximum, only 3000 records will be returned in an API response.
+        # If "count=100" and records=100 in the API are the same then the next URL will be returned and if we hit that URL, 400 error code will be returned.
+        # This case is unreachable because here "count" is 10000 and at maximum, only 3000 records will be returned in an API response.
 
         total_records = 0
-        while window_end_date <= today:
+        for chunk_start, chunk_end in date_chunks:
+            # Set up parameters for this chunk
+            static_params = {**self.params,
+                            'dateRange.start.day': chunk_start.day,
+                            'dateRange.start.month': chunk_start.month,
+                            'dateRange.start.year': chunk_start.year,
+                            'dateRange.end.day': chunk_end.day,
+                            'dateRange.end.month': chunk_end.month,
+                            'dateRange.end.year': chunk_end.year}
+
             responses = []
             for chunk in chunks:
                 static_params['fields'] = ','.join(chunk)
                 params = {"start": 0,
                           **static_params}
                 query_string = '&'.join(['%s=%s' % (key, value) for (key, value) in params.items()])
-                LOGGER.info('Syncing %s from %s to %s', parent_id, window_start_date, window_end_date)
+                LOGGER.info('Syncing %s from %s to %s', parent_id, chunk_start, chunk_end)
                 for page in sync_analytics_endpoint(client, self.tap_stream_id, self.path, query_string):
                     if page.get(self.data_key):
                         responses.append(page.get(self.data_key))
@@ -573,18 +573,50 @@ class LinkedInAds:
                     time_extracted=time_extracted,
                     bookmark_field=bookmark_field,
                     max_bookmark_value=last_datetime,
-                    last_datetime=strftime(last_datetime_dt),
+                    last_datetime=strftime(chunk_start),
                     parent_id=parent_id)
                 LOGGER.info('%s, records processed: %s', self.tap_stream_id, record_count)
                 LOGGER.info('%s: max_bookmark: %s', self.tap_stream_id, max_bookmark_value)
                 total_records += record_count
 
-            window_start_date, window_end_date, static_params = shift_sync_window(static_params, today, date_window_size)
-
-            if window_start_date == window_end_date:
-                break
-
         return total_records, max_bookmark_value
+
+class TimeGranularity:
+    WEEKLY = "WEEKLY"
+    MONTHLY = "MONTHLY"
+    YEARLY = "YEARLY"
+    ALL = "ALL"
+
+def get_date_chunks(start_date, end_date, granularity):
+    """Break down a date range into chunks based on the specified granularity."""
+    start = datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%SZ")
+    end = datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%SZ")
+    chunks = []
+    
+    if granularity == TimeGranularity.WEEKLY:
+        current = start
+        while current < end:
+            chunk_end = min(current + timedelta(days=7), end)
+            chunks.append((current, chunk_end))
+            current = chunk_end
+    elif granularity == TimeGranularity.MONTHLY:
+        current = start
+        while current < end:
+            next_month = current + relativedelta(months=1)
+            chunk_end = min(next_month, end)
+            chunks.append((current, chunk_end))
+            current = chunk_end
+    elif granularity == TimeGranularity.YEARLY:
+        current = start
+        while current < end:
+            next_year = current + relativedelta(years=1)
+            chunk_end = min(next_year, end)
+            chunks.append((current, chunk_end))
+            current = chunk_end
+    else:  # ALL
+        chunks = [(start, end)]
+    
+    return chunks
 
 class Accounts(LinkedInAds):
     """
@@ -719,7 +751,7 @@ class AdAnalyticsByCampaign(LinkedInAds):
     params = {
         "q": "analytics",
         "pivot": "CAMPAIGN",
-        "timeGranularity": "DAILY",
+        "timeGranularity": "ALL",
         "count": 10000
     }
 
@@ -739,7 +771,7 @@ class AdAnalyticsByCreative(LinkedInAds):
     params = {
         "q": "analytics",
         "pivot": "CREATIVE",
-        "timeGranularity": "DAILY",
+        "timeGranularity": "ALL",
         "count": 10000
     }
 

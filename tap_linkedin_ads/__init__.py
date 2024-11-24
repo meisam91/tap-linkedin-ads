@@ -15,7 +15,8 @@ REQUEST_TIMEOUT = 300
 
 REQUIRED_CONFIG_KEYS = [
     'access_token',
-    'user_agent'
+    'user_agent',
+    'time_granularity'
 ]
 
 

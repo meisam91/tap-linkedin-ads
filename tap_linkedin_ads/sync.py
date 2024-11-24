@@ -1,11 +1,50 @@
 import singer
 from tap_linkedin_ads.streams import STREAMS, write_bookmark
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
 
 LOGGER = singer.get_logger()
 
 LOOKBACK_WINDOW = 7
 DATE_WINDOW_SIZE = 30 # days
 PAGE_SIZE = 100
+
+class TimeGranularity:
+    WEEKLY = "WEEKLY"
+    MONTHLY = "MONTHLY"
+    YEARLY = "YEARLY"
+    ALL = "ALL"
+
+def get_date_chunks(start_date, end_date, granularity):
+    """Break down a date range into chunks based on the specified granularity."""
+    start = datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%SZ")
+    end = datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%SZ")
+    chunks = []
+    
+    if granularity == TimeGranularity.WEEKLY:
+        current = start
+        while current < end:
+            chunk_end = min(current + relativedelta(days=7), end)
+            chunks.append((current, chunk_end))
+            current = chunk_end
+    elif granularity == TimeGranularity.MONTHLY:
+        current = start
+        while current < end:
+            next_month = current + relativedelta(months=1)
+            chunk_end = min(next_month, end)
+            chunks.append((current, chunk_end))
+            current = chunk_end
+    elif granularity == TimeGranularity.YEARLY:
+        current = start
+        while current < end:
+            next_year = current + relativedelta(years=1)
+            chunk_end = min(next_year, end)
+            chunks.append((current, chunk_end))
+            current = chunk_end
+    else:  # ALL
+        chunks = [(start, end)]
+    
+    return chunks
 
 def update_currently_syncing(state, stream_name):
     """
@@ -66,12 +105,21 @@ def get_page_size(config):
     except Exception:
         raise Exception("The entered page size ({}) is invalid".format(page_size))
 
+def validate_time_granularity(time_granularity):
+    """Validate the time_granularity config parameter."""
+    valid_granularities = [TimeGranularity.WEEKLY, TimeGranularity.MONTHLY, 
+                          TimeGranularity.YEARLY, TimeGranularity.ALL]
+    if time_granularity not in valid_granularities:
+        raise Exception(f"Invalid time_granularity: {time_granularity}. Must be one of {valid_granularities}")
+
 def sync(client, config, catalog, state):
     """
     sync selected streams.
     """
     start_date = config['start_date']
+    end_date = config.get('end_date', datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"))
     page_size = get_page_size(config)
+    time_granularity = config.get('time_granularity', 'ALL')
 
     if config.get('date_window_size'):
         LOGGER.info('Using non-standard date window size of %s', config.get('date_window_size'))
@@ -128,9 +176,13 @@ def sync(client, config, catalog, state):
             stream_obj.write_schema(catalog)
 
         total_records, max_bookmark_value = stream_obj.sync_endpoint(
-            client=client, catalog=catalog,
-            state=state, page_size=page_size,
+            client=client, 
+            catalog=catalog,
+            state=state, 
+            page_size=page_size,
             start_date=start_date,
+            end_date=end_date,  # Add end_date
+            time_granularity=time_granularity,  # Add time_granularity
             selected_streams=selected_streams,
             date_window_size=date_window_size,
             account_list=account_list)
