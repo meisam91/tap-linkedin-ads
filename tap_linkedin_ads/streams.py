@@ -547,8 +547,8 @@ class LinkedInAds:
                 catalog=catalog,
                 state={},
                 page_size=10000,
-                start_date=chunk_start,
-                end_date=chunk_end,
+                start_date=chunk_start.strftime("%Y-%m-%dT%H:%M:%SZ"),  # Convert to string
+                end_date=chunk_end.strftime("%Y-%m-%dT%H:%M:%SZ"),      # Convert to string
                 time_granularity=time_granularity,
                 selected_streams=catalog,
                 date_window_size=date_window_size
@@ -556,8 +556,8 @@ class LinkedInAds:
             
             total_records += len(records) if records else 0
             
-            # Update bookmark value to the end of the chunk
-            max_bookmark_value = chunk_end
+            # Convert to string format before returning
+            max_bookmark_value = chunk_end.strftime("%Y-%m-%dT%H:%M:%SZ")
         
         return total_records, max_bookmark_value
 
