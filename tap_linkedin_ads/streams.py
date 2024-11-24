@@ -531,37 +531,35 @@ class LinkedInAds:
         for chunk_start, chunk_end in date_chunks:
             LOGGER.info(f'Syncing {parent_id} from {chunk_start} to {chunk_end}')
             
-            params = {
-                **self.params,
+            # Update the class params directly
+            self.params.update({
                 'dateRange.start.day': chunk_start.day,
                 'dateRange.start.month': chunk_start.month,
                 'dateRange.start.year': chunk_start.year,
                 'dateRange.end.day': chunk_end.day,
                 'dateRange.end.month': chunk_end.month,
-                'dateRange.end.year': chunk_end.year,
+                'dateRange.end.year': chunk_end.end_year,
                 'fields': ','.join(all_fields),
                 'timeGranularity': time_granularity
-            }
+            })
             
             if parent_id:
-                params[f'{self.parent}[0]'] = f'urn:li:sponsored{self.parent.title()[:-1]}:{parent_id}'
+                self.params[f'{self.parent}[0]'] = f'urn:li:sponsored{self.parent.title()[:-1]}:{parent_id}'
             
-            # Call sync_endpoint with all required arguments
+            # Call sync_endpoint
             records = self.sync_endpoint(
                 client=client,
-                state={},  # Add proper state handling if needed
+                state={},
                 page_size=10000,
                 start_date=chunk_start,
                 end_date=chunk_end,
                 time_granularity=time_granularity,
                 selected_streams=catalog,
-                date_window_size=date_window_size,
-                params=params
+                date_window_size=date_window_size
             )
             
             total_records += len(records) if records else 0
             
-            # Update bookmark value if records exist
             if records:
                 max_bookmark_value = records[-1].get(bookmark_field)
         
