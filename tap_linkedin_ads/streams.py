@@ -565,7 +565,8 @@ class LinkedInAds:
         for chunk_start, chunk_end in date_chunks:
             LOGGER.info(f'Syncing {parent_id} from {chunk_start} to {chunk_end}')
             
-            # Make a single API call for the entire chunk period
+            # Combine all needed fields in a single call
+            all_fields = ['dateRange', 'pivotValues', 'approximateUniqueImpressions']
             params = {
                 **self.params,
                 'dateRange.start.day': chunk_start.day,
@@ -574,6 +575,7 @@ class LinkedInAds:
                 'dateRange.end.day': chunk_end.day,
                 'dateRange.end.month': chunk_end.month,
                 'dateRange.end.year': chunk_end.year,
+                'fields': ','.join(all_fields)
             }
             
             if parent_id:
