@@ -522,16 +522,12 @@ class LinkedInAds:
         max_bookmark_value = last_datetime
         total_records = 0
         
-        # Get date chunks based on granularity
         date_chunks = get_date_chunks(last_datetime, end_date, time_granularity)
-        
-        # Combine all needed fields for a single API call
         all_fields = ['dateRange', 'pivotValues', 'approximateUniqueImpressions']
         
         for chunk_start, chunk_end in date_chunks:
             LOGGER.info(f'Syncing {parent_id} from {chunk_start} to {chunk_end}')
             
-            # Update the class params directly
             self.params.update({
                 'dateRange.start.day': chunk_start.day,
                 'dateRange.start.month': chunk_start.month,
@@ -546,10 +542,9 @@ class LinkedInAds:
             if parent_id:
                 self.params[f'{self.parent}[0]'] = f'urn:li:sponsored{self.parent.title()[:-1]}:{parent_id}'
             
-            # Call sync_endpoint with all required arguments including catalog
             records = self.sync_endpoint(
                 client=client,
-                catalog=catalog,  # Added missing catalog parameter
+                catalog=catalog,
                 state={},
                 page_size=10000,
                 start_date=chunk_start,
@@ -561,8 +556,8 @@ class LinkedInAds:
             
             total_records += len(records) if records else 0
             
-            if records:
-                max_bookmark_value = records[-1].get(bookmark_field)
+            # Update bookmark value to the end of the chunk
+            max_bookmark_value = chunk_end
         
         return total_records, max_bookmark_value
 
