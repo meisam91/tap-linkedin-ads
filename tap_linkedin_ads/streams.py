@@ -30,6 +30,43 @@ CURSOR_BASED_PAGINATION_STREAMS = ["accounts", "campaign_groups", "campaigns", "
 NEW_PATH_STREAMS = ["campaign_groups", "campaigns", "creatives"]
 BASE_URL = 'https://api.linkedin.com/rest'
 
+class TimeGranularity:
+    WEEKLY = "WEEKLY"
+    MONTHLY = "MONTHLY"
+    YEARLY = "YEARLY"
+    ALL = "ALL"
+
+def get_date_chunks(start_date, end_date, granularity):
+    """Break down a date range into chunks based on the specified granularity."""
+    start = datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%SZ")
+    end = datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%SZ")
+    chunks = []
+    
+    if granularity == TimeGranularity.WEEKLY:
+        current = start
+        while current < end:
+            chunk_end = min(current + timedelta(days=7), end)
+            chunks.append((current, chunk_end))
+            current = chunk_end
+    elif granularity == TimeGranularity.MONTHLY:
+        current = start
+        while current < end:
+            next_month = current + relativedelta(months=1)
+            chunk_end = min(next_month, end)
+            chunks.append((current, chunk_end))
+            current = chunk_end
+    elif granularity == TimeGranularity.YEARLY:
+        current = start
+        while current < end:
+            next_year = current + relativedelta(years=1)
+            chunk_end = min(next_year, end)
+            chunks.append((current, chunk_end))
+            current = chunk_end
+    else:  # ALL
+        chunks = [(start, end)]
+    
+    return chunks
+
 def write_bookmark(state, value, stream_name):
     """
     Write the bookmark in the state corresponding to the stream.
@@ -286,6 +323,8 @@ class LinkedInAds:
                       state,
                       page_size,
                       start_date,
+                      end_date,
+                      time_granularity,
                       selected_streams,
                       date_window_size,
                       parent_id=None,
@@ -431,6 +470,8 @@ class LinkedInAds:
                                     catalog=catalog,
                                     last_datetime=child_obj.get_bookmark(state, start_date),
                                     date_window_size=date_window_size,
+                                    end_date=end_date,
+                                    time_granularity=time_granularity,
                                     parent_id=parent_id)
                             else:
                                 child_total_records, child_batch_bookmark_value = child_obj.sync_endpoint(
@@ -475,25 +516,17 @@ class LinkedInAds:
         return total_records, max_bookmark_value
 
     # pylint: disable=too-many-branches,too-many-statements,unused-argument
-    def sync_ad_analytics(self, client, catalog, last_datetime, date_window_size, parent_id=None):
+    def sync_ad_analytics(self, client, catalog, last_datetime, date_window_size, end_date, time_granularity, parent_id=None):
         """
         Sync method for ad_analytics_by_campaign, ad_analytics_by_creative
         """
-        # LinkedIn has a max of 20 fields per request. We cap the chunks at 18
-        # to make sure there's always room for us to append `dateRange`, and `pivotValues`
         MAX_CHUNK_LENGTH = 18
 
         bookmark_field = next(iter(self.replication_keys))
         max_bookmark_value = last_datetime
 
-        # Get date range from config
-        config = client.config
-        start_date = config['start_date']
-        end_date = config.get('end_date', datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"))
-        time_granularity = config.get('time_granularity', 'DAILY')
-
         # Get date chunks based on granularity
-        date_chunks = get_date_chunks(start_date, end_date, time_granularity)
+        date_chunks = get_date_chunks(last_datetime, end_date, time_granularity)
 
         # Here, valid_selected_fields is a list of fields that the user has selected.
         # API accepts these fields in the parameter and returns its value in the response.
@@ -580,43 +613,6 @@ class LinkedInAds:
                 total_records += record_count
 
         return total_records, max_bookmark_value
-
-class TimeGranularity:
-    WEEKLY = "WEEKLY"
-    MONTHLY = "MONTHLY"
-    YEARLY = "YEARLY"
-    ALL = "ALL"
-
-def get_date_chunks(start_date, end_date, granularity):
-    """Break down a date range into chunks based on the specified granularity."""
-    start = datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%SZ")
-    end = datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%SZ")
-    chunks = []
-    
-    if granularity == TimeGranularity.WEEKLY:
-        current = start
-        while current < end:
-            chunk_end = min(current + timedelta(days=7), end)
-            chunks.append((current, chunk_end))
-            current = chunk_end
-    elif granularity == TimeGranularity.MONTHLY:
-        current = start
-        while current < end:
-            next_month = current + relativedelta(months=1)
-            chunk_end = min(next_month, end)
-            chunks.append((current, chunk_end))
-            current = chunk_end
-    elif granularity == TimeGranularity.YEARLY:
-        current = start
-        while current < end:
-            next_year = current + relativedelta(years=1)
-            chunk_end = min(next_year, end)
-            chunks.append((current, chunk_end))
-            current = chunk_end
-    else:  # ALL
-        chunks = [(start, end)]
-    
-    return chunks
 
 class Accounts(LinkedInAds):
     """
