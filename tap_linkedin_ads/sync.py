@@ -1,6 +1,7 @@
 import singer
 from tap_linkedin_ads.streams import STREAMS, write_bookmark
 from datetime import datetime, timedelta
+from tap_linkedin_ads import VALID_TIME_GRANULARITIES
 
 LOGGER = singer.get_logger()
 

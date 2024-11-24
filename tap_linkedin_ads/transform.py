@@ -7,7 +7,6 @@ import singer
 
 LOGGER = singer.get_logger()
 
-VALID_TIME_GRANULARITIES = ['DAILY', 'MONTHLY', 'YEARLY']
 DEFAULT_TIME_GRANULARITY = 'MONTHLY'
 
 # Convert camelCase to snake_case
