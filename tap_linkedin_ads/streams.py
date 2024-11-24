@@ -509,67 +509,97 @@ class LinkedInAds:
     # pylint: disable=too-many-branches,too-many-statements,unused-argument
     def sync_ad_analytics(self, client, catalog, last_datetime, date_window_size, end_date, time_granularity, parent_id=None):
         """Sync analytics data with proper granularity handling."""
+        MAX_CHUNK_LENGTH = 18  # LinkedIn max 20 fields, reserve 2 for dateRange and pivotValues
         bookmark_field = next(iter(self.replication_keys))
         max_bookmark_value = last_datetime
         total_records = 0
-        
+
+        # Get valid fields that can be requested from API
+        valid_selected_fields = [
+            snake_case_to_camel_case(field)
+            for field in selected_fields(catalog.get_stream(self.tap_stream_id))
+            if snake_case_to_camel_case(field) not in FIELDS_UNAVAILABLE_FOR_AD_ANALYTICS
+        ]
+
+        # Split fields into chunks
+        first_chunk = [['dateRange', 'pivotValues']]
+        chunks = first_chunk + list(split_into_chunks(valid_selected_fields, MAX_CHUNK_LENGTH))
+
+        # Ensure required fields are present in each chunk
+        for chunk in chunks:
+            for field in ['dateRange', 'pivotValues']:
+                if field not in chunk:
+                    chunk.append(field)
+
         # Get date chunks based on granularity
         date_chunks = get_date_chunks(last_datetime, end_date, time_granularity)
         
-        # Fields to retrieve from API
-        all_fields = ['dateRange', 'pivotValues', 'approximateUniqueImpressions']
-        
-        # For each time chunk, make an API call
+        # For each time chunk, make API calls
         for chunk_start, chunk_end in date_chunks:
             LOGGER.info(f'Syncing {parent_id} from {chunk_start} to {chunk_end}')
             
-            # If chunk_start/chunk_end are already datetime objects, don't parse them
+            # Convert to datetime if string
             chunk_start_dt = chunk_start if isinstance(chunk_start, datetime) else datetime.strptime(chunk_start, "%Y-%m-%dT%H:%M:%SZ")
             chunk_end_dt = chunk_end if isinstance(chunk_end, datetime) else datetime.strptime(chunk_end, "%Y-%m-%dT%H:%M:%SZ")
-            
-            # Update parameters for this chunk
-            self.params.update({
+
+            # Base parameters for this time chunk
+            static_params = {
+                'q': 'analytics',
+                'pivot': self.params['pivot'],
+                'timeGranularity': 'ALL',  # Always ALL for API calls
                 'dateRange.start.day': chunk_start_dt.day,
                 'dateRange.start.month': chunk_start_dt.month,
                 'dateRange.start.year': chunk_start_dt.year,
                 'dateRange.end.day': chunk_end_dt.day,
                 'dateRange.end.month': chunk_end_dt.month,
                 'dateRange.end.year': chunk_end_dt.year,
-                'fields': ','.join(all_fields),
-                'timeGranularity': 'ALL'  # Always set to ALL for API calls
-            })
-            
-            # Add parent ID if provided
+            }
+
+            # Add campaign parameter if parent_id exists
             if parent_id:
-                self.params[f'{self.parent}[0]'] = f'urn:li:sponsored{self.parent.title()[:-1]}:{parent_id}'
-            
-            # Make API call for this chunk
-            chunk_records = sync_analytics_endpoint(
-                client=client,
-                stream_name=self.tap_stream_id,
-                path=self.path,
-                query_string='&'.join(['%s=%s' % (key, value) for (key, value) in self.params.items()])
-            )
-            
-            # Process records for this chunk
-            for page in chunk_records:
-                if self.data_key in page:
-                    transformed_data = transform_json(page, self.tap_stream_id)[self.data_key]
-                    if transformed_data:
-                        time_extracted = utils.now()
-                        _, record_count = self.process_records(
-                            catalog=catalog,
-                            records=transformed_data,
-                            time_extracted=time_extracted,
-                            bookmark_field=bookmark_field,
-                            max_bookmark_value=chunk_end_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),  # Convert back to string
-                            last_datetime=last_datetime
-                        )
-                        total_records += record_count
-            
+                static_params[f'{self.parent}[0]'] = f'urn:li:sponsored{self.parent.title()[:-1]}:{parent_id}'
+
+            # Make API calls for each field chunk
+            responses = []
+            for chunk in chunks:
+                params = {
+                    **static_params,
+                    'fields': ','.join(chunk),
+                    'start': 0
+                }
+                query_string = '&'.join(['%s=%s' % (key, value) for (key, value) in params.items()])
+                
+                for page in sync_analytics_endpoint(client, self.tap_stream_id, self.path, query_string):
+                    if page.get(self.data_key):
+                        responses.append(page.get(self.data_key))
+
+            # Merge responses and process records
+            if responses:
+                pivot = static_params["pivot"] if "pivot" in static_params else None
+                raw_records = merge_responses(pivot, responses)
+                time_extracted = utils.now()
+
+                transformed_data = transform_json(
+                    {self.data_key: list(raw_records.values())},
+                    self.tap_stream_id
+                )[self.data_key]
+
+                if transformed_data:
+                    _, record_count = self.process_records(
+                        catalog=catalog,
+                        records=transformed_data,
+                        time_extracted=time_extracted,
+                        bookmark_field=bookmark_field,
+                        max_bookmark_value=chunk_end_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        last_datetime=last_datetime,
+                        parent_id=parent_id
+                    )
+                    LOGGER.info('%s, records processed: %s', self.tap_stream_id, record_count)
+                    total_records += record_count
+
             # Update max_bookmark_value to the latest chunk end
-            max_bookmark_value = chunk_end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")  # Convert back to string
-        
+            max_bookmark_value = chunk_end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
         return total_records, max_bookmark_value
 
 class Accounts(LinkedInAds):
